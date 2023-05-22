@@ -6,7 +6,7 @@ from collections import OrderedDict
 from argparse import ArgumentParser
 
 import lineflow as lf
-from transformers import BertForMultipleChoice, BertTokenizer
+from transformers import BertForMultipleChoice, AutoTokenizer
 import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
@@ -44,7 +44,7 @@ def raw_samples_to_dataset(samples):
     return lf.Dataset(datas)
 
 
-def preprocess(tokenizer: BertTokenizer, x: Dict) -> Dict:
+def preprocess(tokenizer: AutoTokenizer, x: Dict) -> Dict:
 
     choices_features = []
 
@@ -97,7 +97,7 @@ def get_dataloader(datadir: str, batch_size, cachedir: str = "./datasets/cached"
     datadir = Path(datadir)
     cachedir = Path(cachedir)
 
-    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased", do_lower_case=True)
+    tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased", do_lower_case=True)
     preprocessor = partial(preprocess, tokenizer)
 
     train_samples = []
