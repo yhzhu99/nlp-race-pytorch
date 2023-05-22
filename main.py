@@ -6,7 +6,7 @@ from collections import OrderedDict
 from argparse import ArgumentParser
 
 import lineflow as lf
-from transformers import BertForMultipleChoice, BertTokenizer, AdamW
+from transformers import BertForMultipleChoice, BertTokenizer
 import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping
 from lightning.pytorch.loggers import CSVLogger
@@ -228,7 +228,7 @@ class Pipeline(L.LightningModule):
                 'weight_decay': 0.0,
                 }
             ]
-        optimizer = AdamW(optimizer_grouped_parameters, lr=5e-5, eps=adam_epsilon)
+        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=5e-5, eps=adam_epsilon)
 
         return optimizer
 
