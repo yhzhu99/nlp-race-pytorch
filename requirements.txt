@@ -1,0 +1,7 @@
+lightning
+transformers
+lineflow
+hydra-core
+torchmetrics
+numpy
+pandas
