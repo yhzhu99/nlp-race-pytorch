@@ -213,6 +213,41 @@ class Pipeline(L.LightningModule):
         self.outputs.clear()
         return val_loss
 
+    def test_step(self, batch, batch_idx):
+        labels = batch["label"]
+        input_ids = batch["input_ids"]
+        attention_mask = batch["attention_mask"]
+        token_type_ids = batch["token_type_ids"]
+
+        model_outs = self.model(
+                input_ids,
+                token_type_ids=token_type_ids,
+                attention_mask=attention_mask,
+                labels=labels
+                )
+        loss = model_outs.loss
+        logits = model_outs.logits
+
+        labels_hat = torch.argmax(logits, dim=1)
+        correct_count = torch.sum(labels == labels_hat)
+
+        output = OrderedDict({
+                "test_loss": loss,
+                "correct_count": correct_count,
+                "batch_size": len(labels)
+                })
+        self.outputs.append(output)
+
+        return output
+
+    def on_test_epoch_end(self):
+        test_acc = sum([out["correct_count"] for out in self.outputs]) / sum(out["batch_size"] for out in self.outputs)
+        test_loss = sum([out["test_loss"] for out in self.outputs]) / len(self.outputs)
+        self.log('test_loss', test_loss, sync_dist=True)
+        self.log('test_acc', test_acc, sync_dist=True)        
+        self.outputs.clear()
+        return test_loss
+
     def configure_optimizers(self):
         no_decay = ['bias', 'LayerNorm.weight']
         weight_decay = 0.0
