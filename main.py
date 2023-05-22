@@ -8,7 +8,7 @@ from argparse import ArgumentParser
 import lineflow as lf
 from transformers import BertForMultipleChoice, BertTokenizer
 import lightning as L
-from lightning.pytorch.callbacks import EarlyStopping
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 
 import torch
@@ -274,7 +274,7 @@ if __name__ == "__main__":
         }
 
     early_stop_callback = EarlyStopping(
-            monitor="val_loss",
+            monitor="val_acc",
             min_delta=0.0,
             patience=2,
             verbose=True,
@@ -283,13 +283,14 @@ if __name__ == "__main__":
 
     checkpoint_filename = 'bert-base-uncased'
     logger = CSVLogger(save_dir="logs", name=f'race', version=checkpoint_filename)
+    checkpoint_callback = ModelCheckpoint(filename="best", monitor="val_acc", mode="max")
     dm = DataModule(datadir=f'./datasets/RACE', batch_size=config["batch_size"])
     pipeline = Pipeline()
     trainer = L.Trainer(
             accelerator="gpu", devices=[0,1],
             max_epochs=10,
             logger=logger,
-            callbacks=[early_stop_callback],
+            callbacks=[early_stop_callback, checkpoint_callback],
             )
-    trainer.fit(pipeline, dm)
-    trainer.test(pipeline, dm)
+    # trainer.fit(pipeline, dm)
+    trainer.test(pipeline, dm, ckpt_path="logs/race/bert-base-uncased/checkpoints/best.ckpt")
