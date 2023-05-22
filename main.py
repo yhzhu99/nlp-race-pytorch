@@ -270,13 +270,13 @@ class Pipeline(L.LightningModule):
 if __name__ == "__main__":
     L.seed_everything(42)
     config = {
-        "batch_size": 24,
+        "batch_size": 32,
         }
 
     early_stop_callback = EarlyStopping(
             monitor="val_acc",
             min_delta=0.0,
-            patience=2,
+            patience=5,
             verbose=True,
             mode="min",
             )
@@ -288,9 +288,9 @@ if __name__ == "__main__":
     pipeline = Pipeline()
     trainer = L.Trainer(
             accelerator="gpu", devices=[0,1],
-            max_epochs=10,
+            max_epochs=20,
             logger=logger,
             callbacks=[early_stop_callback, checkpoint_callback],
             )
-    # trainer.fit(pipeline, dm)
-    trainer.test(pipeline, dm, ckpt_path="logs/race/bert-base-uncased/checkpoints/best.ckpt")
+    trainer.fit(pipeline, dm)
+    # trainer.test(pipeline, dm, ckpt_path="logs/race/bert-base-uncased/checkpoints/best.ckpt")
