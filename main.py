@@ -278,7 +278,7 @@ if __name__ == "__main__":
             min_delta=0.0,
             patience=5,
             verbose=True,
-            mode="min",
+            mode="max",
             )
 
     checkpoint_filename = 'bert-base-uncased'
