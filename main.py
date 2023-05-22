@@ -175,7 +175,7 @@ class Pipeline(L.LightningModule):
                 )
         loss = model_outs.loss
         logits = model_outs.logits
-        self.log('train_loss', loss)
+        self.log('train_loss', loss, sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -208,8 +208,8 @@ class Pipeline(L.LightningModule):
     def on_validation_epoch_end(self):
         val_acc = sum([out["correct_count"] for out in self.outputs]) / sum(out["batch_size"] for out in self.outputs)
         val_loss = sum([out["val_loss"] for out in self.outputs]) / len(self.outputs)
-        self.log('val_loss', val_loss)
-        self.log('val_acc', val_acc)        
+        self.log('val_loss', val_loss, sync_dist=True)
+        self.log('val_acc', val_acc, sync_dist=True)        
         self.outputs.clear()
         return val_loss
 
