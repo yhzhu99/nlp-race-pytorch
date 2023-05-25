@@ -2,6 +2,8 @@
 datasets/
 logs/
 debug.py
+debug.ipynb
+datasets_hf/
 #####################################
 
 

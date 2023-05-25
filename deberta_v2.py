@@ -7,12 +7,13 @@ from argparse import ArgumentParser
 
 import lineflow as lf
 from transformers import DebertaV2ForMultipleChoice, AutoTokenizer
+from datasets import load_dataset, load_from_disk
 import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 
 import torch
-from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
+from torch.utils.data import DataLoader, SequentialSampler, RandomSampler, Dataset
 
 import logging
 logging.disable(logging.WARNING)
@@ -23,129 +24,38 @@ NUM_LABELS = 4
 label_map = {"A": 0, "B": 1, "C": 2, "D": 3}
 
 
-def raw_samples_to_dataset(samples):
-    datas = []
-    for sample in samples:
-        for idx in range(len(sample["answers"])):
-            _id = sample["id"]
-            _article = sample["article"]
-            _answer = sample["answers"][idx]
-            _options = sample["options"][idx]
-            _question = sample["questions"][idx]
+class RACEDataset(Dataset):
+    def __init__(self, data, tokenizer):
+        self.data = data
+        self.tokenizer = tokenizer
 
-            data = {
-                    "id": _id,
-                    "article": _article,
-                    "answer": _answer,
-                    "options": _options,
-                    "question": _question,
-                    }
-            datas.append(data)
-    return lf.Dataset(datas)
-
-
-def preprocess(tokenizer: AutoTokenizer, x: Dict) -> Dict:
-
-    choices_features = []
-
-    option: str
-    for option in x["options"]:
-        text_a = x["article"]
-        if x["question"].find("_") != -1:
-            text_b = x["question"].replace("_", option)
-        else:
-            text_b = x["question"] + " " + option
-
-        inputs = tokenizer.encode_plus(
-                text_a,
-                text_b,
-                add_special_tokens=True,
-                max_length=MAX_LEN
-                )
-        input_ids, token_type_ids = inputs["input_ids"], inputs["token_type_ids"]
-        attention_mask = [1] * len(input_ids)
-
-        pad_token_id = tokenizer.pad_token_id
-        padding_length = MAX_LEN - len(input_ids)
-        input_ids = input_ids + ([pad_token_id] * padding_length)
-        attention_mask = attention_mask + ([0] * padding_length)
-        token_type_ids = token_type_ids + ([pad_token_id] * padding_length)
-
-        assert len(input_ids) == MAX_LEN, "Error with input length {} vs {}".format(len(input_ids), MAX_LEN)
-        assert len(attention_mask) == MAX_LEN, "Error with input length {} vs {}".format(len(attention_mask), MAX_LEN)
-        assert len(token_type_ids) == MAX_LEN, "Error with input length {} vs {}".format(len(token_type_ids), MAX_LEN)
-
-        choices_features.append({
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "token_type_ids": token_type_ids,
-            })
-
-    labels = label_map.get(x["answer"], -1)
-    label = torch.tensor(labels).long()
-
-    return {
-            "id": x["id"],
-            "label": label,
-            "input_ids": torch.tensor([cf["input_ids"] for cf in choices_features]),
-            "attention_mask": torch.tensor([cf["attention_mask"] for cf in choices_features]),
-            "token_type_ids": torch.tensor([cf["token_type_ids"] for cf in choices_features]),
-            }
-
-
-def get_dataloader(datadir: str, batch_size, cachedir: str = "./datasets/cached"):
-    datadir = Path(datadir)
-    cachedir = Path(cachedir)
-
-    tokenizer = AutoTokenizer.from_pretrained("microsoft/deberta-v2-xlarge")
-    preprocessor = partial(preprocess, tokenizer)
-
-    train_samples = []
-    for grade in ("middle", "high"):
-        for _path in (datadir / "train" / grade).iterdir():
-            train_samples.append(json.loads(_path.read_text()))
-    train = raw_samples_to_dataset(train_samples)
-    train_dataloader = DataLoader(
-            train.map(preprocessor).save(cachedir / "train.cache"),
-            sampler=RandomSampler(train),
-            batch_size=batch_size,
-            num_workers=8,
-            )
-
-    val_samples = []
-    for grade in ("middle", "high"):
-        for _path in (datadir / "dev" / grade).iterdir():
-            val_samples.append(json.loads(_path.read_text()))
-    val = raw_samples_to_dataset(val_samples)
-    val_dataloader = DataLoader(
-            val.map(preprocessor).save(cachedir / "val.cache"),
-            sampler=SequentialSampler(val),
-            batch_size=batch_size,
-            num_workers=8,
-            )
-
-    test_samples = []
-    for grade in ("middle", "high"):
-        for _path in (datadir / "test" / grade).iterdir():
-            test_samples.append(json.loads(_path.read_text()))
-    test = raw_samples_to_dataset(test_samples)
-    test_dataloader = DataLoader(
-            test.map(preprocessor).save(cachedir / "test.cache"),
-            sampler=SequentialSampler(test),
-            batch_size=batch_size,
-            num_workers=8,
-            )
-
-    return train_dataloader, val_dataloader, test_dataloader
-
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        prompt = item['article'] + ' ' + item['question']
+        choices = item['options']
+        encoding = self.tokenizer([prompt] * len(choices), choices, return_tensors='pt', padding='max_length', truncation=True, max_length=128)
+        label = ord(item['answer']) - ord('A')  # convert A, B, C, D to 0, 1, 2, 3
+        return {
+            'input_ids': encoding['input_ids'].squeeze(),
+            'attention_mask': encoding['attention_mask'].squeeze(),
+            'label': torch.tensor(label)
+        }
+    def __len__(self):
+        return len(self.data)
 
 class DataModule(L.LightningDataModule):
     def __init__(self, datadir, batch_size):
         super().__init__()
-        train_dataloader, val_dataloader, test_dataloader = get_dataloader(datadir, batch_size)
-        self._train_dataloader = train_dataloader
-        self._val_dataloader = val_dataloader
-        self._test_dataloader = test_dataloader
+        dataset = load_from_disk(datadir)
+        tokenizer = AutoTokenizer.from_pretrained("microsoft/deberta-v2-xlarge", cache_dir="logs/cache/deberta-v2-xlarge-tokenizer")
+
+        train_data = RACEDataset(dataset['train'], tokenizer)
+        val_data = RACEDataset(dataset['validation'], tokenizer)
+        test_data = RACEDataset(dataset['test'], tokenizer)
+        self._train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+        self._val_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+        self._test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+
     def train_dataloader(self):
         return self._train_dataloader
     def val_dataloader(self):
@@ -157,7 +67,7 @@ class Pipeline(L.LightningModule):
 
     def __init__(self):
         super().__init__()
-        model = DebertaV2ForMultipleChoice.from_pretrained("microsoft/deberta-v2-xlarge", num_labels=NUM_LABELS)
+        model = DebertaV2ForMultipleChoice.from_pretrained("microsoft/deberta-v2-xlarge", cache_dir="logs/cache/deberta-v2-xlarge-model")
         self.model = model
         self.outputs = []
 
@@ -165,11 +75,9 @@ class Pipeline(L.LightningModule):
         labels = batch["label"]
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
-        token_type_ids = batch["token_type_ids"]
 
         model_outs = self.model(
                 input_ids,
-                token_type_ids=token_type_ids,
                 attention_mask=attention_mask,
                 labels=labels
                 )
@@ -182,11 +90,9 @@ class Pipeline(L.LightningModule):
         labels = batch["label"]
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
-        token_type_ids = batch["token_type_ids"]
 
         model_outs = self.model(
                 input_ids,
-                token_type_ids=token_type_ids,
                 attention_mask=attention_mask,
                 labels=labels
                 )
@@ -217,11 +123,9 @@ class Pipeline(L.LightningModule):
         labels = batch["label"]
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
-        token_type_ids = batch["token_type_ids"]
 
         model_outs = self.model(
                 input_ids,
-                token_type_ids=token_type_ids,
                 attention_mask=attention_mask,
                 labels=labels
                 )
@@ -263,7 +167,7 @@ class Pipeline(L.LightningModule):
                 'weight_decay': 0.0,
                 }
             ]
-        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=5e-5, eps=adam_epsilon)
+        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=1e-5, eps=adam_epsilon)
 
         return optimizer
 
@@ -281,13 +185,13 @@ if __name__ == "__main__":
             mode="max",
             )
 
-    checkpoint_filename = 'deberta_v2-uncased'
+    checkpoint_filename = 'deberta_v2-all'
     logger = CSVLogger(save_dir="logs", name=f'race', version=checkpoint_filename)
     checkpoint_callback = ModelCheckpoint(filename="best", monitor="val_acc", mode="max")
-    dm = DataModule(datadir=f'./datasets/RACE', batch_size=config["batch_size"])
+    dm = DataModule(datadir=f"datasets_hf/race_all", batch_size=config["batch_size"])
     pipeline = Pipeline()
     trainer = L.Trainer(
-            accelerator="gpu", devices=[0,1],
+            accelerator="gpu", devices=[0],
             max_epochs=5,
             logger=logger,
             callbacks=[early_stop_callback, checkpoint_callback],
