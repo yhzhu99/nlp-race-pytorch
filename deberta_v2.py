@@ -33,7 +33,7 @@ class RACEDataset(Dataset):
         item = self.data[idx]
         prompt = item['article'] + ' ' + item['question']
         choices = item['options']
-        encoding = self.tokenizer([prompt] * len(choices), choices, return_tensors='pt', padding='max_length', truncation=True, max_length=128)
+        encoding = self.tokenizer([prompt] * len(choices), choices, return_tensors='pt', padding='max_length', truncation=True, max_length=256)
         label = ord(item['answer']) - ord('A')  # convert A, B, C, D to 0, 1, 2, 3
         return {
             'input_ids': encoding['input_ids'].squeeze(),
@@ -157,24 +157,24 @@ class Pipeline(L.LightningModule):
         weight_decay = 0.0
         adam_epsilon = 1e-8
 
-        optimizer_grouped_parameters = [
-            {
-                'params': [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)],
-                'weight_decay': weight_decay
-                },
-            {
-                'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)],
-                'weight_decay': 0.0,
-                }
-            ]
-        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=1e-5, eps=adam_epsilon)
+        # optimizer_grouped_parameters = [
+        #     {
+        #         'params': [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)],
+        #         'weight_decay': weight_decay
+        #         },
+        #     {
+        #         'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)],
+        #         'weight_decay': 0.0,
+        #         }
+        #     ]
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-6, eps=adam_epsilon)
 
         return optimizer
 
 if __name__ == "__main__":
     L.seed_everything(42)
     config = {
-        "batch_size": 2,
+        "batch_size": 1,
         }
 
     early_stop_callback = EarlyStopping(
