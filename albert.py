@@ -19,11 +19,6 @@ import logging
 logging.disable(logging.WARNING)
 
 
-MAX_LEN = 128
-NUM_LABELS = 4
-label_map = {"A": 0, "B": 1, "C": 2, "D": 3}
-
-
 class RACEDataset(Dataset):
     def __init__(self, data, tokenizer):
         self.data = data
@@ -196,5 +191,5 @@ if __name__ == "__main__":
             logger=logger,
             callbacks=[early_stop_callback, checkpoint_callback],
             )
-    trainer.fit(pipeline, dm)
-    # trainer.test(pipeline, dm, ckpt_path="logs/race/albert-uncased/checkpoints/best.ckpt")
+    # trainer.fit(pipeline, dm)
+    trainer.test(pipeline, dm, ckpt_path="logs/race/albert-all/checkpoints/best.ckpt")
